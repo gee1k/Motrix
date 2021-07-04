@@ -1,32 +1,29 @@
-import { remote } from 'electron'
+import { ipcRenderer } from 'electron'
 import is from 'electron-is'
-import { isEmpty } from 'lodash'
-import Aria2 from 'aria2'
+import { isEmpty, clone } from 'lodash'
+import { Aria2 } from '@shared/aria2'
 import {
   separateConfig,
   compactUndefined,
+  formatOptionsForEngine,
   mergeTaskResult,
   changeKeysToCamelCase,
   changeKeysToKebabCase
 } from '@shared/utils'
-import {
-  BEST_TRACKERS_URL,
-  BEST_TRACKERS_IP_URL
-} from '@shared/constants'
-
-const application = remote.getGlobal('application')
+import { ENGINE_RPC_HOST } from '@shared/constants'
 
 export default class Api {
   constructor (options = {}) {
     this.options = options
 
-    this.client = null
     this.init()
   }
 
-  init () {
-    this.loadConfig()
-    this.initClient()
+  async init () {
+    this.config = await this.loadConfig()
+
+    this.client = this.initClient()
+    this.client.open()
   }
 
   loadConfigFromLocalStorage () {
@@ -35,21 +32,18 @@ export default class Api {
     return result
   }
 
-  loadConfigFromNativeStore () {
-    const systemConfig = application.configManager.getSystemConfig()
-    const userConfig = application.configManager.getUserConfig()
-
-    const result = { ...systemConfig, ...userConfig }
+  async loadConfigFromNativeStore () {
+    const result = await ipcRenderer.invoke('get-app-config')
     return result
   }
 
-  loadConfig () {
+  async loadConfig () {
     let result = is.renderer()
-      ? this.loadConfigFromNativeStore()
+      ? await this.loadConfigFromNativeStore()
       : this.loadConfigFromLocalStorage()
 
     result = changeKeysToCamelCase(result)
-    this.config = result
+    return result
   }
 
   initClient () {
@@ -57,11 +51,12 @@ export default class Api {
       rpcListenPort: port,
       rpcSecret: secret
     } = this.config
-    this.client = new Aria2({
+    const host = ENGINE_RPC_HOST
+    return new Aria2({
+      host,
       port,
       secret
     })
-    this.client.open()
   }
 
   closeClient () {
@@ -76,7 +71,7 @@ export default class Api {
 
   fetchPreference () {
     return new Promise((resolve) => {
-      this.loadConfig()
+      this.config = this.loadConfig()
       resolve(this.config)
     })
   }
@@ -96,20 +91,24 @@ export default class Api {
 
   savePreferenceToNativeStore (params = {}) {
     const { user, system, others } = separateConfig(params)
-    if (!isEmpty(system)) {
-      console.info('[Motrix] save system config: ', system)
-      application.configManager.setSystemConfig(system)
-      this.changeGlobalOption(system)
-    }
+    const config = {}
 
     if (!isEmpty(user)) {
       console.info('[Motrix] save user config: ', user)
-      application.configManager.setUserConfig(user)
+      config.user = user
+    }
+
+    if (!isEmpty(system)) {
+      console.info('[Motrix] save system config: ', system)
+      config.system = system
+      this.updateActiveTaskOption(system)
     }
 
     if (!isEmpty(others)) {
-      console.info('[Motrix] save config found iillegal key: ', others)
+      console.info('[Motrix] save config found illegal key: ', others)
     }
+
+    ipcRenderer.send('command', 'application:save-preference', config)
   }
 
   getVersion () {
@@ -117,10 +116,7 @@ export default class Api {
   }
 
   changeGlobalOption (options) {
-    const args = {}
-    Object.keys(options).forEach((key) => {
-      args[key] = `${options[key]}`
-    })
+    const args = formatOptionsForEngine(options)
 
     return this.client.call('changeGlobalOption', args)
   }
@@ -134,6 +130,39 @@ export default class Api {
     })
   }
 
+  getOption (params = {}) {
+    const { gid } = params
+    const args = compactUndefined([gid])
+
+    return new Promise((resolve) => {
+      this.client.call('getOption', ...args)
+        .then((data) => {
+          resolve(changeKeysToCamelCase(data))
+        })
+    })
+  }
+
+  updateActiveTaskOption (options) {
+    this.fetchTaskList({ type: 'active' })
+      .then((data) => {
+        if (isEmpty(data)) {
+          return
+        }
+
+        const gids = data.map((task) => task.gid)
+        this.batchChangeOption({ gids, options })
+      })
+  }
+
+  changeOption (params = {}) {
+    const { gid, options = {} } = params
+
+    const engineOptions = formatOptionsForEngine(options)
+    const args = compactUndefined([gid, engineOptions])
+
+    return this.client.call('changeOption', ...args)
+  }
+
   getGlobalStat () {
     return this.client.call('getGlobalStat')
   }
@@ -141,11 +170,16 @@ export default class Api {
   addUri (params) {
     const {
       uris,
+      outs,
       options
     } = params
-    const tasks = uris.map((uri) => {
-      const args = compactUndefined([[uri], options])
-      return [ 'aria2.addUri', ...args ]
+    const tasks = uris.map((uri, index) => {
+      const engineOptions = formatOptionsForEngine(options)
+      if (outs && outs[index]) {
+        engineOptions.out = outs[index]
+      }
+      const args = compactUndefined([[uri], engineOptions])
+      return ['aria2.addUri', ...args]
     })
     return this.client.multicall(tasks)
   }
@@ -155,7 +189,8 @@ export default class Api {
       torrent,
       options
     } = params
-    const args = compactUndefined([torrent, [], options])
+    const engineOptions = formatOptionsForEngine(options)
+    const args = compactUndefined([torrent, [], engineOptions])
     return this.client.call('addTorrent', ...args)
   }
 
@@ -164,7 +199,8 @@ export default class Api {
       metalink,
       options
     } = params
-    const args = compactUndefined([metalink, options])
+    const engineOptions = formatOptionsForEngine(options)
+    const args = compactUndefined([metalink, engineOptions])
     return this.client.call('addMetalink', ...args)
   }
 
@@ -174,14 +210,14 @@ export default class Api {
     const waitingArgs = compactUndefined([offset, num, keys])
     return new Promise((resolve, reject) => {
       this.client.multicall([
-        [ 'aria2.tellActive', ...activeArgs ],
-        [ 'aria2.tellWaiting', ...waitingArgs ]
+        ['aria2.tellActive', ...activeArgs],
+        ['aria2.tellWaiting', ...waitingArgs]
       ]).then((data) => {
-        console.log('fetchDownloadingTaskList data', data)
+        console.log('[Motrix] fetch downloading task list data:', data)
         const result = mergeTaskResult(data)
         resolve(result)
       }).catch((err) => {
-        console.log('fetchDownloadingTaskList fail===>', err)
+        console.log('[Motrix] fetch downloading task list fail:', err)
         reject(err)
       })
     })
@@ -202,14 +238,14 @@ export default class Api {
   fetchTaskList (params = {}) {
     const { type } = params
     switch (type) {
-      case 'active':
-        return this.fetchDownloadingTaskList(params)
-      case 'waiting':
-        return this.fetchWaitingTaskList(params)
-      case 'stopped':
-        return this.fetchStoppedTaskList(params)
-      default:
-        return this.fetchDownloadingTaskList(params)
+    case 'active':
+      return this.fetchDownloadingTaskList(params)
+    case 'waiting':
+      return this.fetchWaitingTaskList(params)
+    case 'stopped':
+      return this.fetchStoppedTaskList(params)
+    default:
+      return this.fetchDownloadingTaskList(params)
     }
   }
 
@@ -217,6 +253,36 @@ export default class Api {
     const { gid, keys } = params
     const args = compactUndefined([gid, keys])
     return this.client.call('tellStatus', ...args)
+  }
+
+  fetchTaskItemWithPeers (params = {}) {
+    const { gid, keys } = params
+    const statusArgs = compactUndefined([gid, keys])
+    const peersArgs = compactUndefined([gid])
+    return new Promise((resolve, reject) => {
+      this.client.multicall([
+        ['aria2.tellStatus', ...statusArgs],
+        ['aria2.getPeers', ...peersArgs]
+      ]).then((data) => {
+        console.log('[Motrix] fetchTaskItemWithPeers:', data)
+        const result = data[0] && data[0][0]
+        const peers = data[1] && data[1][0]
+        result.peers = peers || []
+        console.log('[Motrix] fetchTaskItemWithPeers.result:', result)
+        console.log('[Motrix] fetchTaskItemWithPeers.peers:', peers)
+
+        resolve(result)
+      }).catch((err) => {
+        console.log('[Motrix] fetch downloading task list fail:', err)
+        reject(err)
+      })
+    })
+  }
+
+  fetchTaskItemPeers (params = {}) {
+    const { gid, keys } = params
+    const args = compactUndefined([gid, keys])
+    return this.client.call('getPeers', ...args)
   }
 
   pauseTask (params = {}) {
@@ -275,24 +341,35 @@ export default class Api {
     return this.client.call('removeDownloadResult', ...args)
   }
 
-  startPowerSaveBlocker () {
-    application.energyManager.startPowerSaveBlocker()
-  }
+  multicall (method, params = {}) {
+    let { gids, options = {} } = params
+    options = formatOptionsForEngine(options)
 
-  stopPowerSaveBlocker () {
-    application.energyManager.stopPowerSaveBlocker()
-  }
-
-  fetchBtTrackerFromGitHub () {
-    const now = Date.now()
-    const promises = [
-      fetch(`${BEST_TRACKERS_IP_URL}?t=${now}`).then((res) => res.text()),
-      fetch(`${BEST_TRACKERS_URL}?t=${now}`).then((res) => res.text())
-    ]
-
-    return Promise.all(promises).then((values) => {
-      let result = values.join('\r\n').replace(/^\s*[\r\n]/gm, '')
-      return result
+    const data = gids.map((gid, index) => {
+      const _options = clone(options)
+      const args = compactUndefined([gid, _options])
+      return [method, ...args]
     })
+    return this.client.multicall(data)
+  }
+
+  batchChangeOption (params = {}) {
+    return this.multicall('aria2.changeOption', params)
+  }
+
+  batchRemoveTask (params = {}) {
+    return this.multicall('aria2.remove', params)
+  }
+
+  batchResumeTask (params = {}) {
+    return this.multicall('aria2.unpause', params)
+  }
+
+  batchPauseTask (params = {}) {
+    return this.multicall('aria2.pause', params)
+  }
+
+  batchForcePauseTask (params = {}) {
+    return this.multicall('aria2.forcePause', params)
   }
 }

@@ -1,65 +1,77 @@
 <template>
-  <div class="task-item-actions" v-on:dblclick.stop="() => null">
-    <!-- <i @click.stop="onMoreClick">
-      <mo-icon name="more" width="14" height="14" />
-    </i> -->
-    <i @click.stop="onInfoClick" v-if="mode === 'LIST'">
-      <mo-icon name="info-circle" width="14" height="14" />
-    </i>
-    <i @click.stop="onLinkClick">
-      <mo-icon name="link" width="14" height="14" />
-    </i>
-    <i v-if="isRenderer()" @click.stop="onFolderClick">
-      <mo-icon name="folder" width="14" height="14" />
-    </i>
-    <i v-if="task.status ==='complete' ||
-      task.status ==='removed' ||
-      task.status ==='error'"
-      @click.stop="onTrashClick">
-      <mo-icon name="trash" width="14" height="14" />
-    </i>
-    <i v-if="task.status ==='active' ||
-      task.status ==='waiting' ||
-      task.status ==='paused'"
-      @click.stop="onDeleteClick">
-      <mo-icon name="delete" width="14" height="14" />
-    </i>
-    <i v-if="task.status ==='active'" @click.stop="onPauseClick">
-      <mo-icon name="task-pause-line" width="14" height="14" />
-    </i>
-    <i v-if="task.status ==='waiting' || task.status ==='paused'" @click.stop="onResumeClick">
-      <mo-icon name="task-start-line" width="14" height="14" />
-    </i>
-  </div>
+  <ul :key="task.gid" class="task-item-actions" v-on:dblclick.stop="() => null">
+    <li v-for="action in taskActions" :key="action" class="task-item-action">
+      <i v-if="action ==='PAUSE'" @click.stop="onPauseClick">
+        <mo-icon name="task-pause-line" width="14" height="14" />
+      </i>
+      <i v-if="action ==='STOP'" @click.stop="onStopClick">
+        <mo-icon name="task-stop-line" width="14" height="14" />
+      </i>
+      <i v-if="action === 'RESUME'" @click.stop="onResumeClick">
+        <mo-icon name="task-start-line" width="14" height="14" />
+      </i>
+      <i v-if="action === 'RESTART'" @click.stop="onRestartClick">
+        <mo-icon name="task-restart" width="14" height="14" />
+      </i>
+      <i v-if="action === 'DELETE'" @click.stop="onDeleteClick">
+        <mo-icon name="delete" width="14" height="14" />
+      </i>
+      <i v-if="action === 'TRASH'" @click.stop="onTrashClick">
+        <mo-icon name="trash" width="14" height="14" />
+      </i>
+      <i v-if="action ==='FOLDER'" @click.stop="onFolderClick">
+        <mo-icon name="folder" width="14" height="14" />
+      </i>
+      <i v-if="action ==='LINK'" @click.stop="onLinkClick">
+        <mo-icon name="link" width="14" height="14" />
+      </i>
+      <i v-if="action ==='INFO'" @click.stop="onInfoClick">
+        <mo-icon name="info-circle" width="14" height="14" />
+      </i>
+    </li>
+  </ul>
 </template>
 
 <script>
+  import { mapState } from 'vuex'
   import is from 'electron-is'
-  import * as clipboard from 'clipboard-polyfill'
+
+  import { commands } from '@/components/CommandManager/instance'
+  import { TASK_STATUS } from '@shared/constants'
+  import {
+    checkTaskIsSeeder,
+    getTaskName
+  } from '@shared/utils'
+  import { getTaskFullPath } from '@/utils/native'
   import '@/components/Icons/task-start-line'
   import '@/components/Icons/task-pause-line'
+  import '@/components/Icons/task-stop-line'
+  import '@/components/Icons/task-restart'
   import '@/components/Icons/delete'
   import '@/components/Icons/folder'
   import '@/components/Icons/link'
   import '@/components/Icons/info-circle'
-  import '@/components/Icons/more'
   import '@/components/Icons/trash'
-  import {
-    showItemInFolder,
-    moveTaskFilesToTrash
-  } from '@/components/Native/utils'
-  import {
-    getTaskName,
-    getTaskUri,
-    getTaskFullPath
-  } from '@shared/utils'
+
+  const taskActionsMap = {
+    [TASK_STATUS.ACTIVE]: ['PAUSE', 'DELETE'],
+    [TASK_STATUS.PAUSED]: ['RESUME', 'DELETE'],
+    [TASK_STATUS.WAITING]: ['RESUME', 'DELETE'],
+    [TASK_STATUS.ERROR]: ['RESTART', 'TRASH'],
+    [TASK_STATUS.COMPLETE]: ['RESTART', 'TRASH'],
+    [TASK_STATUS.REMOVED]: ['RESTART', 'TRASH'],
+    [TASK_STATUS.SEEDING]: ['STOP', 'DELETE']
+  }
 
   export default {
     name: 'mo-task-item-actions',
     props: {
       mode: {
         type: String,
-        default: 'LIST'
+        default: 'LIST',
+        validator: function (value) {
+          return ['LIST', 'DETAIL'].indexOf(value) !== -1
+        }
       },
       task: {
         type: Object,
@@ -67,163 +79,146 @@
       }
     },
     computed: {
-      taskName: function () {
+      ...mapState('preference', {
+        noConfirmBeforeDelete: state => state.config.noConfirmBeforeDeleteTask
+      }),
+      taskName () {
         return getTaskName(this.task)
       },
-      path: function () {
+      path () {
         return getTaskFullPath(this.task)
+      },
+      isSeeder () {
+        return checkTaskIsSeeder(this.task)
+      },
+      taskStatus () {
+        const { task, isSeeder } = this
+        if (isSeeder) {
+          return TASK_STATUS.SEEDING
+        } else {
+          return task.status
+        }
+      },
+      taskCommonActions () {
+        const { mode } = this
+        const result = is.renderer() ? ['FOLDER'] : []
+
+        switch (mode) {
+        case 'LIST':
+          result.push('LINK', 'INFO')
+          break
+        case 'DETAIL':
+          result.push('LINK')
+          break
+        }
+
+        return result
+      },
+      taskActions () {
+        const { taskStatus, taskCommonActions } = this
+        const actions = taskActionsMap[taskStatus] || []
+        const result = [...actions, ...taskCommonActions].reverse()
+        return result
       }
     },
     methods: {
-      isRenderer: is.renderer,
-      deleteTaskFiles: function (task) {
-        moveTaskFilesToTrash(task, {
-          pathErrorMsg: this.$t('task.file-path-error'),
-          delFailMsg: this.$t('task.remove-task-file-fail'),
-          delConfigFailMsg: this.$t('task.remove-task-config-file-fail')
+      onResumeClick () {
+        const { task, taskName } = this
+        commands.emit('resume-task', {
+          task,
+          taskName
         })
       },
-      removeTaskItem: function (task, isRemoveWithFiles) {
-        this.$store.dispatch('task/removeTask', this.task)
-          .then(() => {
-            if (isRemoveWithFiles) {
-              this.deleteTaskFiles(task)
-            }
-            this.$msg.success(this.$t('task.delete-task-success', {
-              taskName: this.taskName
-            }))
-          })
-          .catch(({ code }) => {
-            if (code === 1) {
-              this.$msg.error(this.$t('task.delete-task-fail', {
-                taskName: this.taskName
-              }))
-            }
-          })
+      onRestartClick (event) {
+        const { task, taskName } = this
+        const { status } = task
+        const showDialog = status === TASK_STATUS.COMPLETE || !!event.altKey
+        commands.emit('restart-task', {
+          task,
+          taskName,
+          showDialog
+        })
       },
-      removeTaskRecord: function (task, isRemoveWithFiles) {
-        this.$store.dispatch('task/removeTaskRecord', this.task)
-          .then(() => {
-            if (isRemoveWithFiles) {
-              this.deleteTaskFiles(task)
-            }
-            this.$msg.success(this.$t('task.remove-record-success', {
-              taskName: this.taskName
-            }))
-          })
-          .catch(({ code }) => {
-            if (code === 1) {
-              this.$msg.error(this.$t('task.remove-record-fail', {
-                taskName: this.taskName
-              }))
-            }
-          })
+      onPauseClick () {
+        const { task, taskName } = this
+        commands.emit('pause-task', {
+          task,
+          taskName
+        })
       },
-      onResumeClick: function () {
-        this.$store.dispatch('task/resumeTask', this.task)
-          .catch(({ code }) => {
-            if (code === 1) {
-              this.$msg.error(this.$t('task.resume-task-fail', {
-                taskName: this.taskName
-              }))
-            }
-          })
-      },
-      onPauseClick: function () {
-        const { taskName } = this
-        this.$msg.info(this.$t('task.download-pause-message', { taskName }))
-        this.$store.dispatch('task/pauseTask', this.task)
-          .catch(({ code }) => {
-            if (code === 1) {
-              this.$msg.error(this.$t('task.pause-task-fail', { taskName }))
-            }
-          })
-      },
-      onDeleteClick: function () {
-        const self = this
+      onStopClick () {
+        if (!this.isSeeder) {
+          return
+        }
+
         const { task } = this
-        this.$electron.remote.dialog.showMessageBox({
-          type: 'warning',
-          title: this.$t('task.delete-task'),
-          message: this.$t('task.delete-task-confirm', { taskName: this.taskName }),
-          buttons: [this.$t('app.yes'), this.$t('app.no')],
-          cancelId: 1,
-          checkboxLabel: this.$t('task.delete-task-label')
-        }, (buttonIndex, checkboxChecked) => {
-          if (buttonIndex === 0) {
-            self.removeTaskItem(task, checkboxChecked)
-          }
+        commands.emit('stop-task-seeding', { task })
+      },
+      onDeleteClick (event) {
+        const { task, taskName } = this
+        const deleteWithFiles = !!event.shiftKey
+        commands.emit('delete-task', {
+          task,
+          taskName,
+          deleteWithFiles
         })
       },
-      onTrashClick: function () {
-        const self = this
+      onTrashClick (event) {
+        const { task, taskName } = this
+        const deleteWithFiles = !!event.shiftKey
+        commands.emit('delete-task-record', {
+          task,
+          taskName,
+          deleteWithFiles
+        })
+      },
+      onFolderClick () {
+        const { path } = this
+        commands.emit('reveal-in-folder', { path })
+      },
+      onLinkClick () {
         const { task } = this
-        this.$electron.remote.dialog.showMessageBox({
-          type: 'warning',
-          title: this.$t('task.remove-record'),
-          message: this.$t('task.remove-record-confirm', { taskName: this.taskName }),
-          buttons: [this.$t('app.yes'), this.$t('app.no')],
-          cancelId: 1,
-          checkboxLabel: this.$t('task.remove-record-label')
-        }, (buttonIndex, checkboxChecked) => {
-          if (buttonIndex === 0) {
-            self.removeTaskRecord(task, checkboxChecked)
-          }
-        })
+        commands.emit('copy-task-link', { task })
       },
-      onFolderClick: function () {
-        showItemInFolder(this.path, {
-          errorMsg: this.$t('task.file-not-exist')
-        })
-      },
-      onLinkClick: function () {
-        this.$store.dispatch('app/fetchEngineOptions')
-          .then((data) => {
-            const { btTracker } = data
-            const uri = getTaskUri(this.task, btTracker)
-            clipboard.writeText(uri)
-              .then(() => {
-                this.$msg.success(this.$t('task.copy-link-success'))
-              })
-          })
-      },
-      onInfoClick: function () {
-        this.$store.dispatch('task/showTaskItemInfoDialog', this.task)
-      },
-      onMoreClick: function () {
-        console.log('onMoreClick===>')
+      onInfoClick () {
+        const { task } = this
+        commands.emit('show-task-info', { task })
       }
     }
   }
 </script>
 
 <style lang="scss">
-  .task-item-actions {
-    // width: 28px;
-    height: 24px;
-    padding: 0 10px;
-    overflow: hidden;
-    user-select: none;
-    cursor: default;
-    text-align: right;
-    direction: rtl;
-    border: 1px solid $--task-item-action-border-color;
-    color: $--task-item-action-color;
-    background-color: $--task-item-action-background;
-    border-radius: 14px;
-    transition: $--all-transition;
-    &:hover {
-      border-color: $--task-item-action-hover-border-color;
-      color: $--task-item-action-hover-color;
-      background-color: $--task-item-action-hover-background;
-      width: auto;
-    }
-    &> i {
+.task-item-actions {
+  // width: 28px;
+  height: 24px;
+  padding: 0 10px;
+  margin: 0;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+  text-align: right;
+  direction: rtl;
+  border: 1px solid $--task-item-action-border-color;
+  color: $--task-item-action-color;
+  background-color: $--task-item-action-background;
+  border-radius: 14px;
+  transition: $--all-transition;
+  &:hover {
+    border-color: $--task-item-action-hover-border-color;
+    color: $--task-item-action-hover-color;
+    background-color: $--task-item-action-hover-background;
+    width: auto;
+  }
+  &> .task-item-action {
+    display: inline-block;
+    padding: 5px;
+    margin: 0 4px;
+    font-size: 0;
+    cursor: pointer;
+    i {
       display: inline-block;
-      padding: 5px;
-      margin: 0 4px;
-      font-size: 0;
-      cursor: pointer;
     }
   }
+}
 </style>

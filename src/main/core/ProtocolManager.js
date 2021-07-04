@@ -1,35 +1,61 @@
-
 import { EventEmitter } from 'events'
 import { app } from 'electron'
+import is from 'electron-is'
+import { parse } from 'querystring'
+
 import logger from './Logger'
 import protocolMap from '../configs/protocol'
+import { ADD_TASK_TYPE } from '@shared/constants'
 
 export default class ProtocolManager extends EventEmitter {
   constructor (options = {}) {
     super()
     this.options = options
 
+    // package.json:build.protocols[].schemes[]
+    // options.protocols: { 'magnet': true, 'thunder': false }
+    this.protocols = {
+      mo: true,
+      motrix: true,
+      ...options.protocols
+    }
+
     this.init()
   }
 
   init () {
-    // package.json:build.protocols[].schemes[]
-    if (!app.isDefaultProtocolClient('mo')) {
-      app.setAsDefaultProtocolClient('mo')
+    const { protocols } = this
+    this.setup(protocols)
+  }
+
+  setup (protocols) {
+    if (is.dev() || is.mas()) {
+      return
     }
-    if (!app.isDefaultProtocolClient('motrix')) {
-      app.setAsDefaultProtocolClient('motrix')
-    }
-    if (!app.isDefaultProtocolClient('magnet')) {
-      app.setAsDefaultProtocolClient('magnet')
-    }
+
+    Object.keys(protocols).forEach((protocol) => {
+      const enabled = protocols[protocol]
+      if (enabled) {
+        if (!app.isDefaultProtocolClient(protocol)) {
+          app.setAsDefaultProtocolClient(protocol)
+        }
+      } else {
+        app.removeAsDefaultProtocolClient(protocol)
+      }
+    })
   }
 
   handle (url) {
     logger.info(`[Motrix] protocol url: ${url}`)
 
-    if (url.toLowerCase().startsWith('magnet:')) {
-      return this.handleMagnetProtocol(url)
+    if (
+      url.toLowerCase().startsWith('ftp:') ||
+      url.toLowerCase().startsWith('http:') ||
+      url.toLowerCase().startsWith('https:') ||
+      url.toLowerCase().startsWith('magnet:') ||
+      url.toLowerCase().startsWith('thunder:')
+    ) {
+      return this.handleResourceProtocol(url)
     }
 
     if (
@@ -40,18 +66,20 @@ export default class ProtocolManager extends EventEmitter {
     }
   }
 
-  handleMagnetProtocol (url) {
+  handleResourceProtocol (url) {
     if (!url) {
       return
     }
-    logger.error(`[Motrix] handleMagnetProtocol url: ${url}`)
 
-    global.application.sendCommandToAll('application:new-task', 'uri', url)
+    global.application.sendCommandToAll('application:new-task', {
+      type: ADD_TASK_TYPE.URI,
+      uri: url
+    })
   }
 
   handleMoProtocol (url) {
     const parsed = new URL(url)
-    const { host } = parsed
+    const { host, search } = parsed
     logger.info('[Motrix] protocol parsed:', parsed, host)
 
     const command = protocolMap[host]
@@ -59,10 +87,8 @@ export default class ProtocolManager extends EventEmitter {
       return
     }
 
-    // @TODO 没想明白怎么传参数好
-    // 如果按顺序传递，那 url 的 query string 就要求有序的了
-    // const query = queryString.parse(parsed.query)
-    const args = []
-    global.application.sendCommandToAll(command, ...args)
+    const query = search.startsWith('?') ? search.replace('?', '') : search
+    const args = parse(query)
+    global.application.sendCommandToAll(command, args)
   }
 }

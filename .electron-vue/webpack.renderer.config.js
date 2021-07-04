@@ -6,13 +6,13 @@ const devMode = process.env.NODE_ENV !== 'production'
 const path = require('path')
 const { dependencies } = require('../package.json')
 const webpack = require('webpack')
-
-const BabiliWebpackPlugin = require('babili-webpack-plugin')
+const TerserPlugin = require('terser-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
-const OptimizeCSSPlugin = require('optimize-css-assets-webpack-plugin')
+const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const { VueLoaderPlugin } = require('vue-loader')
+const ESLintPlugin = require('eslint-webpack-plugin');
 
 /**
  * List of node_modules to include in webpack bundle
@@ -24,7 +24,6 @@ const { VueLoaderPlugin } = require('vue-loader')
 let whiteListedModules = ['vue']
 
 let rendererConfig = {
-  devtool: '#cheap-module-eval-source-map',
   entry: {
     index: path.join(__dirname, '../src/renderer/pages/index/main.js')
   },
@@ -34,14 +33,10 @@ let rendererConfig = {
   module: {
     rules: [
       {
-        test: /\.(js|vue)$/,
-        enforce: 'pre',
-        exclude: /node_modules/,
+        test: /\.worker\.js$/,
         use: {
-          loader: 'eslint-loader',
-          options: {
-            formatter: require('eslint-friendly-formatter')
-          }
+          loader: 'worker-loader',
+          options: { filename: '[name].js' }
         }
       },
       {
@@ -52,8 +47,11 @@ let rendererConfig = {
           {
             loader: 'sass-loader',
             options: {
-              data: '@import "@/components/Theme/Variables.scss";',
-              includePaths:[__dirname, 'src']
+              implementation: require('sass'),
+              additionalData: '@import "@/components/Theme/Variables.scss";',
+              sassOptions: {
+                includePaths:[__dirname, 'src']
+              }
             },
           }
         ]
@@ -66,9 +64,12 @@ let rendererConfig = {
           {
             loader: 'sass-loader',
             options: {
+              implementation: require('sass'),
               indentedSyntax: true,
-              data: '@import "@/components/Theme/Variables.scss";',
-              includePaths:[__dirname, 'src']
+              additionalData: '@import "@/components/Theme/Variables.scss";',
+              sassOptions: {
+                includePaths:[__dirname, 'src']
+              }
             },
           }
         ]
@@ -87,10 +88,6 @@ let rendererConfig = {
           devMode ? 'vue-style-loader' : MiniCssExtractPlugin.loader,
           'css-loader'
         ]
-      },
-      {
-        test: /\.html$/,
-        use: 'vue-html-loader'
       },
       {
         test: /\.js$/,
@@ -119,7 +116,7 @@ let rendererConfig = {
         test: /\.(png|jpe?g|gif|svg)(\?.*)?$/,
         use: {
           loader: 'url-loader',
-          query: {
+          options: {
             limit: 10000,
             name: 'imgs/[name]--[folder].[ext]'
           }
@@ -137,7 +134,7 @@ let rendererConfig = {
         test: /\.(woff2?|eot|ttf|otf)(\?.*)?$/,
         use: {
           loader: 'url-loader',
-          query: {
+          options: {
             limit: 10000,
             name: 'fonts/[name]--[folder].[ext]'
           }
@@ -155,12 +152,6 @@ let rendererConfig = {
       filename: '[name].css',
       chunkFilename: '[id].css'
     }),
-    new OptimizeCSSPlugin({
-      cssProcessorOptions: {
-        safe: true,
-        discardComments: { removeAll: true }
-      }
-    }),
     new HtmlWebpackPlugin({
       title: 'Motrix',
       filename: 'index.html',
@@ -171,17 +162,25 @@ let rendererConfig = {
       //   removeAttributeQuotes: true,
       //   removeComments: true
       // },
+      isBrowser: false,
+      isDev: process.env.NODE_ENV !== 'production',
       nodeModules: devMode
         ? path.resolve(__dirname, '../node_modules')
         : false
     }),
     new webpack.HotModuleReplacementPlugin(),
-    new webpack.NoEmitOnErrorsPlugin()
+    new webpack.NoEmitOnErrorsPlugin(),
+    new ESLintPlugin({
+      extensions: ['js', 'vue'],
+      formatter: require('eslint-friendly-formatter')
+    })
   ],
   output: {
     filename: '[name].js',
     libraryTarget: 'commonjs2',
-    path: path.join(__dirname, '../dist/electron')
+    path: path.join(__dirname, '../dist/electron'),
+    globalObject: 'this',
+    publicPath: ''
   },
   resolve: {
     alias: {
@@ -191,13 +190,24 @@ let rendererConfig = {
     },
     extensions: ['.js', '.vue', '.json', '.css', '.node']
   },
-  target: 'electron-renderer'
+  target: 'electron-renderer',
+  optimization: {
+    minimize: !devMode,
+    minimizer: [
+      new TerserPlugin({
+        extractComments: false,
+      }),
+      new CssMinimizerPlugin(),
+    ],
+  },
 }
 
 /**
  * Adjust rendererConfig for development settings
  */
 if (devMode) {
+  rendererConfig.devtool = 'eval-cheap-module-source-map'
+
   rendererConfig.plugins.push(
     new webpack.DefinePlugin({
       '__static': `"${path.join(__dirname, '../static').replace(/\\/g, '\\\\')}"`
@@ -209,17 +219,14 @@ if (devMode) {
  * Adjust rendererConfig for production settings
  */
 if (!devMode) {
-  rendererConfig.devtool = ''
-
   rendererConfig.plugins.push(
-    new BabiliWebpackPlugin(),
-    new CopyWebpackPlugin([
-      {
+    new CopyWebpackPlugin({
+      patterns: [{
         from: path.join(__dirname, '../static'),
         to: path.join(__dirname, '../dist/electron/static'),
-        ignore: ['.*']
-      }
-    ]),
+        globOptions: { ignore: [ '.*' ] }
+      }]
+    }),
     new webpack.DefinePlugin({
       'process.env.NODE_ENV': '"production"'
     }),

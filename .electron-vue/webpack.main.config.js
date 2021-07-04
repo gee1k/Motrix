@@ -6,8 +6,8 @@ const devMode = process.env.NODE_ENV !== 'production'
 const path = require('path')
 const { dependencies, build } = require('../package.json')
 const webpack = require('webpack')
-
-const BabiliWebpackPlugin = require('babili-webpack-plugin')
+const TerserPlugin = require('terser-webpack-plugin');
+const ESLintPlugin = require('eslint-webpack-plugin');
 
 let mainConfig = {
   entry: {
@@ -18,17 +18,6 @@ let mainConfig = {
   ],
   module: {
     rules: [
-      {
-        test: /\.(js)$/,
-        enforce: 'pre',
-        exclude: /node_modules/,
-        use: {
-          loader: 'eslint-loader',
-          options: {
-            formatter: require('eslint-friendly-formatter')
-          }
-        }
-      },
       {
         test: /\.js$/,
         use: 'babel-loader',
@@ -50,7 +39,10 @@ let mainConfig = {
     path: path.join(__dirname, '../dist/electron')
   },
   plugins: [
-    new webpack.NoEmitOnErrorsPlugin()
+    new webpack.NoEmitOnErrorsPlugin(),
+    new ESLintPlugin({
+      formatter: require('eslint-friendly-formatter')
+    })
   ],
   resolve: {
     alias: {
@@ -59,7 +51,15 @@ let mainConfig = {
     },
     extensions: ['.js', '.json', '.node']
   },
-  target: 'electron-main'
+  target: 'electron-main',
+  optimization: {
+    minimize: !devMode,
+    minimizer: [
+      new TerserPlugin({
+        extractComments: false,
+      })
+    ],
+  },
 }
 
 /**
@@ -79,7 +79,6 @@ if (devMode) {
  */
 if (!devMode) {
   mainConfig.plugins.push(
-    new BabiliWebpackPlugin(),
     new webpack.DefinePlugin({
       'process.env.NODE_ENV': '"production"',
       'appId': `"${build.appId}"`

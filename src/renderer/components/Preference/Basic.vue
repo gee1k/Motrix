@@ -1,7 +1,12 @@
 <template>
   <el-container class="content panel" direction="vertical">
     <el-header class="panel-header" height="84">
-      <h4>{{ title }}</h4>
+      <h4 class="hidden-xs-only">{{ title }}</h4>
+      <mo-subnav-switcher
+        :title="title"
+        :subnavs="subnavs"
+        class="hidden-sm-and-up"
+      />
     </el-header>
     <el-main class="panel-content">
       <el-form
@@ -10,8 +15,12 @@
         label-position="right"
         size="mini"
         :model="form"
-        :rules="rules">
-        <el-form-item :label="`${$t('preferences.appearance')}: `" :label-width="formLabelWidth">
+        :rules="rules"
+      >
+        <el-form-item
+          :label="`${$t('preferences.appearance')}: `"
+          :label-width="formLabelWidth"
+        >
           <el-col class="form-item-sub" :span="24">
             <mo-theme-switcher
               v-model="form.theme"
@@ -23,8 +32,37 @@
               {{ $t('preferences.hide-app-menu') }}
             </el-checkbox>
           </el-col>
+          <el-col class="form-item-sub" :span="16">
+            <el-checkbox v-model="form.autoHideWindow">
+              {{ $t('preferences.auto-hide-window') }}
+            </el-checkbox>
+          </el-col>
+          <el-col v-if="isMac" class="form-item-sub" :span="16">
+            <el-checkbox v-model="form.traySpeedometer">
+              {{ $t('preferences.tray-speedometer') }}
+            </el-checkbox>
+          </el-col>
         </el-form-item>
-        <el-form-item :label="`${$t('preferences.language')}: `" :label-width="formLabelWidth">
+        <el-form-item
+          v-if="isMac"
+          :label="`${$t('preferences.run-mode')}: `"
+          :label-width="formLabelWidth"
+        >
+          <el-col class="form-item-sub" :span="24">
+            <el-select v-model="form.runMode">
+              <el-option
+                v-for="item in runModes"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value">
+              </el-option>
+            </el-select>
+          </el-col>
+        </el-form-item>
+        <el-form-item
+          :label="`${$t('preferences.language')}: `"
+          :label-width="formLabelWidth"
+        >
           <el-col class="form-item-sub" :span="16">
             <el-select
               v-model="form.locale"
@@ -39,11 +77,14 @@
             </el-select>
           </el-col>
         </el-form-item>
-        <el-form-item :label="`${$t('preferences.startup')}: `" :label-width="formLabelWidth">
+        <el-form-item
+          :label="`${$t('preferences.startup')}: `"
+          :label-width="formLabelWidth"
+        >
           <el-col
             class="form-item-sub"
             :span="24"
-            v-if="!isLinux()"
+            v-if="!isLinux"
           >
             <el-checkbox v-model="form.openAtLogin">
               {{ $t('preferences.open-at-login') }}
@@ -59,61 +100,101 @@
               {{ $t('preferences.auto-resume-all') }}
             </el-checkbox>
           </el-col>
-          <el-col class="form-item-sub" :span="24">
-            <el-checkbox v-model="form.autoCheckUpdate">
-              {{ $t('preferences.auto-check-update') }}
-            </el-checkbox>
-            <div class="el-form-item__info" style="margin-top: 8px;" v-if="form.lastCheckUpdateTime !== 0">
-              {{ $t('preferences.last-check-update-time') + ': ' + (form.lastCheckUpdateTime !== 0 ?  new
-              Date(form.lastCheckUpdateTime).toLocaleString() : new Date().toLocaleString()) }}
-            </div>
-          </el-col>
         </el-form-item>
-        <el-form-item :label="`${$t('preferences.default-dir')}: `" :label-width="formLabelWidth">
-          <el-input placeholder="" v-model="downloadDir" :readonly="isMas()">
+        <el-form-item
+          :label="`${$t('preferences.default-dir')}: `"
+          :label-width="formLabelWidth"
+        >
+          <el-input placeholder="" v-model="form.dir" :readonly="isMas">
             <mo-select-directory
-              v-if="isRenderer()"
+              v-if="isRenderer"
               slot="append"
               @selected="onDirectorySelected"
             />
           </el-input>
-          <div class="el-form-item__info" v-if="isMas()" style="margin-top: 8px;">
+          <div class="el-form-item__info" v-if="isMas" style="margin-top: 8px;">
             {{ $t('preferences.mas-default-dir-tips') }}
           </div>
         </el-form-item>
-        <el-form-item :label="`${$t('preferences.transfer-setting')}: `" :label-width="formLabelWidth">
+        <el-form-item
+          :label="`${$t('preferences.transfer-settings')}: `"
+          :label-width="formLabelWidth"
+        >
           <el-col class="form-item-sub" :span="24">
             {{ $t('preferences.transfer-speed-upload') }}
-            <el-radio-group class="radio-group-margin-left" v-model="maxOverallUploadLimitRadio">
-              <el-radio :label="true">{{ $t('preferences.transfer-speed-no-set') }}</el-radio>
-              <el-radio :label="false">
-                {{ $t('preferences.transfer-speed-set') }}
-                <el-input class="download-speed-input" type="number" v-model="maxOverallUploadLimitValue">
-                  <el-select v-model="maxOverallUploadLimitUnit" slot="append">
-                    <el-option label="K" value="K"></el-option>
-                    <el-option label="M" value="M"></el-option>
-                  </el-select>
-                </el-input>
-              </el-radio>
-            </el-radio-group>
+            <el-select v-model="form.maxOverallUploadLimit">
+              <el-option
+                v-for="item in speedOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value">
+              </el-option>
+            </el-select>
           </el-col>
           <el-col class="form-item-sub" :span="24">
             {{ $t('preferences.transfer-speed-download') }}
-            <el-radio-group class="radio-group-margin-left" v-model="maxOverallDownloadLimitRadio">
-              <el-radio :label="true">{{ $t('preferences.transfer-speed-no-set') }}</el-radio>
-              <el-radio :label="false">
-                {{ $t('preferences.transfer-speed-set') }}
-                <el-input class="download-speed-input" type="number" v-model="maxOverallDownloadLimitValue">
-                  <el-select v-model="maxOverallDownloadLimitUnit" slot="append">
-                    <el-option label="K" value="K"></el-option>
-                    <el-option label="M" value="M"></el-option>
-                  </el-select>
-                </el-input>
-              </el-radio>
-            </el-radio-group>
+            <el-select v-model="form.maxOverallDownloadLimit">
+              <el-option
+                v-for="item in speedOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value">
+              </el-option>
+            </el-select>
           </el-col>
         </el-form-item>
-        <el-form-item :label="`${$t('preferences.task-manage')}: `" :label-width="formLabelWidth">
+        <el-form-item
+          :label="`${$t('preferences.bt-settings')}: `"
+          :label-width="formLabelWidth"
+        >
+          <el-col class="form-item-sub" :span="24">
+            <el-checkbox v-model="form.btSaveMetadata">
+              {{ $t('preferences.bt-save-metadata') }}
+            </el-checkbox>
+          </el-col>
+          <el-col class="form-item-sub" :span="24">
+            <el-checkbox
+              v-model="form.btAutoDownloadContent"
+            >
+              {{ $t('preferences.bt-auto-download-content') }}
+            </el-checkbox>
+          </el-col>
+          <el-col class="form-item-sub" :span="24">
+            <el-switch
+              v-model="form.keepSeeding"
+              :active-text="$t('preferences.keep-seeding')"
+              @change="onKeepSeedingChange"
+            >
+            </el-switch>
+          </el-col>
+          <el-col class="form-item-sub" :span="24" v-if="!form.keepSeeding">
+            {{ $t('preferences.seed-ratio') }}
+            <el-input-number
+              v-model="form.seedRatio"
+              controls-position="right"
+              :min="1"
+              :max="100"
+              :step="0.1"
+              :label="$t('preferences.seed-ratio')">
+            </el-input-number>
+          </el-col>
+          <el-col class="form-item-sub" :span="24" v-if="!form.keepSeeding">
+            {{ $t('preferences.seed-time') }}
+            ({{ $t('preferences.seed-time-unit') }})
+            <el-input-number
+              v-model="form.seedTime"
+              controls-position="right"
+              :min="60"
+              :max="525600"
+              :step="1"
+              :label="$t('preferences.seed-time')">
+            </el-input-number>
+          </el-col>
+        </el-form-item>
+        <el-form-item
+          :label="`${$t('preferences.task-manage')}: `"
+          :label-width="formLabelWidth"
+        >
           <el-col class="form-item-sub" :span="24">
             {{ $t('preferences.max-concurrent-downloads') }}
             <el-input-number
@@ -127,10 +208,10 @@
           <el-col class="form-item-sub" :span="24">
             {{ $t('preferences.max-connection-per-server') }}
             <el-input-number
-              v-model="form.split"
+              v-model="form.maxConnectionPerServer"
               controls-position="right"
               :min="1"
-              :max="form.maxConnectionPerServer"
+              :max="form.engineMaxConnectionPerServer"
               :label="$t('preferences.max-connection-per-server')">
             </el-input-number>
           </el-col>
@@ -149,78 +230,101 @@
               {{ $t('preferences.task-completed-notify') }}
             </el-checkbox>
           </el-col>
+          <el-col class="form-item-sub" :span="24">
+            <el-checkbox v-model="form.noConfirmBeforeDeleteTask">
+              {{ $t('preferences.no-confirm-before-delete-task') }}
+            </el-checkbox>
+          </el-col>
         </el-form-item>
       </el-form>
       <div class="form-actions">
-        <el-button type="primary" @click="submitForm('basicForm')">{{ $t('preferences.save') }}</el-button>
-        <el-button @click="resetForm('basicForm')">{{ $t('preferences.discard') }}</el-button>
+        <el-button
+          type="primary"
+          @click="submitForm('basicForm')"
+        >
+          {{ $t('preferences.save') }}
+        </el-button>
+        <el-button
+          @click="resetForm('basicForm')"
+        >
+          {{ $t('preferences.discard') }}
+        </el-button>
       </div>
     </el-main>
   </el-container>
 </template>
-<style>
-  .radio-group-margin-left {
-    margin-left: 6px;
-  }
-  .el-input-group.download-speed-input {
-    width: 50%;
-  }
-  .el-input-group .el-select .el-input {
-    width: 60px;
-  }
- .download-speed-input input::-webkit-outer-spin-button, .download-speed-input input::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-  }
-</style>
 
 <script>
   import is from 'electron-is'
   import { mapState } from 'vuex'
   import { cloneDeep } from 'lodash'
+  import SubnavSwitcher from '@/components/Subnav/SubnavSwitcher'
   import SelectDirectory from '@/components/Native/SelectDirectory'
   import ThemeSwitcher from '@/components/Preference/ThemeSwitcher'
   import { availableLanguages, getLanguage } from '@shared/locales'
   import { getLocaleManager } from '@/components/Locale'
-  import { prettifyDir } from '@/components/Native/utils'
-  import { diffConfig } from '@shared/utils'
+  import {
+    calcFormLabelWidth,
+    checkIsNeedRestart,
+    diffConfig
+  } from '@shared/utils'
+  import { APP_RUN_MODE } from '@shared/constants'
 
-  const initialForm = (config) => {
+  const initForm = (config) => {
     const {
-      autoCheckUpdate,
+      autoHideWindow,
+      btSaveMetadata,
       dir,
+      engineMaxConnectionPerServer,
+      followMetalink,
+      followTorrent,
       hideAppMenu,
+      keepSeeding,
       keepWindowState,
-      lastCheckUpdateTime,
       locale,
       maxConcurrentDownloads,
       maxConnectionPerServer,
-      maxOverallUploadLimit,
       maxOverallDownloadLimit,
+      maxOverallUploadLimit,
       newTaskShowDownloading,
+      noConfirmBeforeDeleteTask,
       openAtLogin,
+      pauseMetadata,
       resumeAllWhenAppLaunched,
-      split,
+      runMode,
+      seedRatio,
+      seedTime,
       taskNotification,
-      theme
+      theme,
+      traySpeedometer
     } = config
     const result = {
-      autoCheckUpdate,
+      autoHideWindow,
+      btAutoDownloadContent: !pauseMetadata,
+      btSaveMetadata,
       continue: config.continue,
       dir,
+      engineMaxConnectionPerServer,
+      followMetalink,
+      followTorrent,
       hideAppMenu,
+      keepSeeding,
       keepWindowState,
-      lastCheckUpdateTime,
       locale,
       maxConcurrentDownloads,
       maxConnectionPerServer,
-      maxOverallUploadLimit,
       maxOverallDownloadLimit,
+      maxOverallUploadLimit,
       newTaskShowDownloading,
+      noConfirmBeforeDeleteTask,
       openAtLogin,
       resumeAllWhenAppLaunched,
-      split,
+      runMode,
+      seedRatio,
+      seedTime,
       taskNotification,
-      theme
+      theme,
+      traySpeedometer
     }
     return result
   }
@@ -228,175 +332,200 @@
   export default {
     name: 'mo-preference-basic',
     components: {
+      [SubnavSwitcher.name]: SubnavSwitcher,
       [SelectDirectory.name]: SelectDirectory,
       [ThemeSwitcher.name]: ThemeSwitcher
     },
-    data: function () {
-      const form = initialForm(this.$store.state.preference.config)
+    data () {
+      const { locale } = this.$store.state.preference.config
+      const form = initForm(this.$store.state.preference.config)
+      const formOriginal = cloneDeep(form)
+
       return {
         form,
-        formLabelWidth: '23%',
-        formOriginal: cloneDeep(form),
+        formLabelWidth: calcFormLabelWidth(locale),
+        formOriginal,
         locales: availableLanguages,
         rules: {}
       }
     },
     computed: {
-      title: function () {
+      isRenderer: () => is.renderer(),
+      isMac: () => is.macOS(),
+      isMas: () => is.mas(),
+      isLinux () { return is.linux() },
+      title () {
         return this.$t('preferences.basic')
       },
-      showHideAppMenuOption: function () {
+      runModes () {
+        return [
+          {
+            label: this.$t('preferences.run-mode-standard'),
+            value: 1
+          },
+          {
+            label: this.$t('preferences.run-mode-menu-bar'),
+            value: 2
+          }
+        ]
+      },
+      speedOptions () {
+        return [
+          {
+            label: this.$t('preferences.transfer-speed-unlimited'),
+            value: 0
+          },
+          {
+            label: '128 KB/s',
+            value: '128K'
+          },
+          {
+            label: '256 KB/s',
+            value: '256K'
+          },
+          {
+            label: '512 KB/s',
+            value: '512K'
+          },
+          {
+            label: '1 MB/s',
+            value: '1M'
+          },
+          {
+            label: '2 MB/s',
+            value: '2M'
+          },
+          {
+            label: '3 MB/s',
+            value: '3M'
+          },
+          {
+            label: '5 MB/s',
+            value: '5M'
+          },
+          {
+            label: '8 MB/s',
+            value: '8M'
+          },
+          {
+            label: '10 MB/s',
+            value: '10M'
+          },
+          {
+            label: '20 MB/s',
+            value: '20M'
+          },
+          {
+            label: '30 MB/s',
+            value: '30M'
+          }
+        ]
+      },
+      subnavs () {
+        return [
+          {
+            key: 'basic',
+            title: this.$t('preferences.basic'),
+            route: '/preference/basic'
+          },
+          {
+            key: 'advanced',
+            title: this.$t('preferences.advanced'),
+            route: '/preference/advanced'
+          },
+          {
+            key: 'lab',
+            title: this.$t('preferences.lab'),
+            route: '/preference/lab'
+          }
+        ]
+      },
+      showHideAppMenuOption () {
         return is.windows() || is.linux()
-      },
-      downloadDir: function () {
-        return prettifyDir(this.form.dir)
-      },
-      maxOverallUploadLimitValue: {
-        get: function () {
-          let value = this.form.maxOverallUploadLimit
-          if (typeof value === 'string') {
-            return value.substring(0, value.length - 1)
-          }
-          return this.form.maxOverallUploadLimit
-        },
-        set: function (value) {
-          value = this.fixSpeedInputValue(value)
-          this.form.maxOverallUploadLimit = value + this.maxOverallUploadLimitUnit
-        }
-      },
-      maxOverallUploadLimitUnit: {
-        get: function () {
-          let value = this.form.maxOverallUploadLimit
-          if (typeof value === 'string') {
-            return value.substring(value.length - 1, value.length)
-          }
-          return 'K'
-        },
-        set: function (value) {
-          this.form.maxOverallUploadLimit = this.maxOverallUploadLimitValue + value
-        }
-      },
-      maxOverallUploadLimitRadio: {
-        get: function () {
-          let value = this.form.maxOverallUploadLimit
-          if (typeof value === 'string') {
-            return value.startsWith('0')
-          }
-          return value === 0
-        },
-        set: function (value) {
-          if (value) {
-            this.form.maxOverallUploadLimit = 0
-          } else {
-            this.form.maxOverallUploadLimit = 128
-          }
-        }
-      },
-      maxOverallDownloadLimitValue: {
-        get: function () {
-          let value = this.form.maxOverallDownloadLimit
-          if (typeof value === 'string') {
-            return value.substring(0, value.length - 1)
-          }
-          return this.form.maxOverallDownloadLimit
-        },
-        set: function (value) {
-          value = this.fixSpeedInputValue(value)
-          this.form.maxOverallDownloadLimit = value + this.maxOverallDownloadLimitUnit
-        }
-      },
-      maxOverallDownloadLimitUnit: {
-        get: function () {
-          let value = this.form.maxOverallDownloadLimit
-          if (typeof value === 'string') {
-            return value.substring(value.length - 1, value.length)
-          }
-          return 'K'
-        },
-        set: function (value) {
-          this.form.maxOverallDownloadLimit = this.maxOverallDownloadLimitValue + value
-        }
-      },
-      maxOverallDownloadLimitRadio: {
-        get: function () {
-          let value = this.form.maxOverallDownloadLimit
-          if (typeof value === 'string') {
-            return value.startsWith('0')
-          }
-          return value === 0
-        },
-        set: function (value) {
-          if (value) {
-            this.form.maxOverallDownloadLimit = 0
-          } else {
-            this.form.maxOverallDownloadLimit = 128
-          }
-        }
       },
       ...mapState('preference', {
         config: state => state.config
       })
     },
     methods: {
-      isRenderer: is.renderer,
-      isMas: is.mas,
-      isLinux: is.linux,
       handleLocaleChange (locale) {
         const lng = getLanguage(locale)
         getLocaleManager().changeLanguage(lng)
-        this.speedOptions = this.buildSpeedOptions()
-        this.$electron.ipcRenderer.send('command', 'application:change-locale', lng)
+        this.$electron.ipcRenderer.send('command',
+                                        'application:change-locale', lng)
       },
       handleThemeChange (theme) {
         this.form.theme = theme
-        this.$electron.ipcRenderer.send('command', 'application:change-theme', theme)
+        this.$electron.ipcRenderer.send('command',
+                                        'application:change-theme', theme)
+      },
+      onKeepSeedingChange (enable) {
+        this.form.seedRatio = enable ? 0 : 1
+        this.form.seedTime = enable ? 525600 : 60
       },
       onDirectorySelected (dir) {
         this.form.dir = dir
       },
+      syncFormConfig () {
+        this.$store.dispatch('preference/fetchPreference')
+          .then((config) => {
+            this.form = initForm(config)
+            this.formOriginal = cloneDeep(this.form)
+          })
+      },
       submitForm (formName) {
         this.$refs[formName].validate((valid) => {
           if (!valid) {
-            console.log('error submit!!')
+            console.error('[Motrix] preference form valid:', valid)
             return false
           }
 
-          const { openAtLogin } = this.form
+          const { btAutoDownloadContent, runMode, openAtLogin, autoHideWindow } = this.form
           const changed = diffConfig(this.formOriginal, this.form)
           const data = {
             ...changed
           }
-          console.log('changed====》', data)
+          if ('btAutoDownloadContent' in changed) {
+            data.pauseMetadata = !btAutoDownloadContent
+            data.followMetalink = btAutoDownloadContent
+            data.followTorrent = btAutoDownloadContent
+          }
+          console.log('[Motrix] preference changed data:', data)
 
           this.$store.dispatch('preference/save', data)
             .then(() => {
               this.$store.dispatch('app/fetchEngineOptions')
+              this.syncFormConfig()
               this.$msg.success(this.$t('preferences.save-success-message'))
             })
             .catch(() => {
               this.$msg.success(this.$t('preferences.save-fail-message'))
             })
 
-          if (this.isRenderer()) {
-            this.$electron.ipcRenderer.send('command', 'application:open-at-login', openAtLogin)
+          if (this.isRenderer) {
+            this.$electron.ipcRenderer.send('command',
+                                            'application:open-at-login', openAtLogin)
+
+            if ('runMode' in changed) {
+              this.$electron.ipcRenderer.send('command',
+                                              'application:toggle-dock', runMode === APP_RUN_MODE.STANDARD)
+            }
+
+            if ('autoHideWindow' in changed) {
+              this.$electron.ipcRenderer.send('command',
+                                              'application:auto-hide-window', autoHideWindow)
+            }
+
+            if (checkIsNeedRestart(data)) {
+              this.$electron.ipcRenderer.send('command',
+                                              'application:relaunch')
+            }
           }
         })
       },
       resetForm (formName) {
-        this.form = initialForm(this.$store.state.preference.config)
-      },
-      fixSpeedInputValue (value) {
-        if (!value) {
-          return 0
-        }
-        if (typeof value === 'string' && value.startsWith('0')) {
-          return this.fixSpeedInputValue(value.substring(1, value.length))
-        }
-        return value
+        this.syncFormConfig()
       }
     }
   }
 </script>
-
-<style lang="scss">
-</style>

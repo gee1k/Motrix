@@ -1,8 +1,10 @@
 # Motrix Contributing Guide
 
+Before you start contributing, make sure you already understand [GitHub flow](https://guides.github.com/introduction/flow/).
+
 ## 🌍 Translation Guide
 
-First you need to determine the English abbreviation of a language as **locale**, such as en-US, this locale value should strictly refer to the [electron's documentation](https://electronjs.org/docs/api/locales).
+First you need to determine the English abbreviation of a language as **locale**, such as en-US, this locale value should strictly refer to the [electron's documentation](https://www.electronjs.org/docs/api/app#appgetlocale).
 
 The internationalization of Motrix is divided into two parts:
 

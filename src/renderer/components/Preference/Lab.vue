@@ -1,112 +1,96 @@
 <template>
   <el-container class="content panel" direction="vertical">
     <el-header class="panel-header" height="84">
-      <h4>{{ title }}</h4>
+      <h4 class="hidden-xs-only">{{ title }}</h4>
+      <mo-subnav-switcher
+        :title="title"
+        :subnavs="subnavs"
+        class="hidden-sm-and-up"
+      />
     </el-header>
-    <el-main class="panel-content">
-      <el-form
-        class="form-preference"
-        ref="labForm"
-        label-position="right"
-        size="mini"
-        :model="form"
-        :rules="rules">
-        <el-form-item :label-width="formLabelWidth">
-          <div class="el-form-item__error">
-            {{ $t('preferences.lab-warning') }}
-          </div>
-        </el-form-item>
-        <el-form-item :label="`${$t('preferences.download-protocol')}: `" :label-width="formLabelWidth">
-          <el-col class="form-item-sub" :span="24">
-            <el-switch
-              v-model="form.enableEggFeatures"
-              :active-text="$t('preferences.support-more-download-protocols')"
-              >
-            </el-switch>
-          </el-col>
-        </el-form-item>
-        <el-form-item :label="`${$t('preferences.browser-extensions')}: `" :label-width="formLabelWidth">
-          <el-col class="form-item-sub" :span="24">
-            <a target="_blank" href="https://motrix.app/release/BaiduExporter.zip" rel="noopener noreferrer">
-              {{ $t('preferences.baidu-exporter') }}
-              <mo-icon name="link" width="12" height="12" />
-            </a>
-            <div class="el-form-item__info" style="margin-top: 8px;">
-              {{ $t('preferences.browser-extensions-tips') }}
-              <a target="_blank" href="https://motrix.app/extensions/baidu" rel="noopener noreferrer">
-                {{ $t('preferences.baidu-exporter-help') }}
-              </a>
-            </div>
-          </el-col>
-        </el-form-item>
-      </el-form>
-      <div class="form-actions">
-        <el-button type="primary" @click="submitForm('labForm')">{{ $t('preferences.save') }}</el-button>
-        <el-button @click="resetForm('labForm')">{{ $t('preferences.discard') }}</el-button>
-      </div>
-    </el-main>
+    <mo-browser
+      v-if="isRenderer"
+      class="lab-webview"
+      :src="url"
+    />
   </el-container>
 </template>
 
 <script>
   import is from 'electron-is'
   import { mapState } from 'vuex'
-  import '@/components/Icons/info-square'
 
-  const initialForm = (config) => {
-    const {
-      enableEggFeatures
-    } = config
-    const result = {
-      enableEggFeatures
-    }
-    return result
-  }
+  import { APP_THEME } from '@shared/constants'
+  import SubnavSwitcher from '@/components/Subnav/SubnavSwitcher'
+  import Browser from '@/components/Browser'
+  import '@/components/Icons/info-square'
 
   export default {
     name: 'mo-preference-lab',
     components: {
+      [SubnavSwitcher.name]: SubnavSwitcher,
+      [Browser.name]: Browser
     },
-    data: function () {
+    data () {
+      const { locale } = this.$store.state.preference.config
       return {
-        formLabelWidth: '23%',
-        form: initialForm(this.$store.state.preference.config),
-        rules: {}
+        locale
       }
     },
     computed: {
-      title: function () {
+      isRenderer: () => is.renderer(),
+      ...mapState('app', {
+        systemTheme: state => state.systemTheme
+      }),
+      ...mapState('preference', {
+        config: state => state.config,
+        theme: state => state.config.theme
+      }),
+      currentTheme () {
+        if (this.theme === APP_THEME.AUTO) {
+          return this.systemTheme
+        } else {
+          return this.theme
+        }
+      },
+      url () {
+        const { currentTheme, locale } = this
+        const result = `https://motrix.app/lab?lite=true&theme=${currentTheme}&lang=${locale}`
+        return result
+      },
+      title () {
         return this.$t('preferences.lab')
       },
-      ...mapState('preference', {
-        config: state => state.config
-      })
-    },
-    watch: {
-
-    },
-    methods: {
-      isRenderer: is.renderer,
-      submitForm (formName) {
-        this.$refs[formName].validate((valid) => {
-          if (!valid) {
-            console.log('error submit!!')
-            return false
+      subnavs () {
+        return [
+          {
+            key: 'basic',
+            title: this.$t('preferences.basic'),
+            route: '/preference/basic'
+          },
+          {
+            key: 'advanced',
+            title: this.$t('preferences.advanced'),
+            route: '/preference/advanced'
+          },
+          {
+            key: 'lab',
+            title: this.$t('preferences.lab'),
+            route: '/preference/lab'
           }
-
-          console.log('this.form===>', this.form)
-          this.$store.dispatch('preference/save', this.form)
-          if (this.isRenderer()) {
-            this.$electron.ipcRenderer.send('command', 'application:relaunch')
-          }
-        })
-      },
-      resetForm (formName) {
-        this.form = initialForm(this.$store.state.preference.config)
+        ]
       }
     }
   }
 </script>
 
 <style lang="scss">
+.lab-webview {
+  display: inline-flex;;
+  flex: 1;
+  flex-basis: auto;
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 0;
+}
 </style>

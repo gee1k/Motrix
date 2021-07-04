@@ -1,6 +1,6 @@
-import is from 'electron-is'
+import { ADD_TASK_TYPE } from '@shared/constants'
 import api from '@/api'
-import { getSystemTheme } from '@/components/Native/utils'
+import { getSystemTheme, isBigSur } from '@/utils/native'
 
 const BASE_INTERVAL = 1000
 const PER_INTERVAL = 100
@@ -9,6 +9,8 @@ const MAX_INTERVAL = 6000
 
 const state = {
   systemTheme: getSystemTheme(),
+  bigSur: isBigSur(),
+  trayFocused: false,
   aboutPanelVisible: false,
   engineInfo: {
     version: '',
@@ -20,23 +22,27 @@ const state = {
     downloadSpeed: 0,
     uploadSpeed: 0,
     numActive: 0,
-    numStopped: 0,
-    numWaiting: 0
+    numWaiting: 0,
+    numStopped: 0
   },
   addTaskVisible: false,
-  addTaskType: 'uri',
+  addTaskType: ADD_TASK_TYPE.URI,
   addTaskUrl: '',
-  addTaskTorrents: []
+  addTaskTorrents: [],
+  addTaskOptions: {}
 }
 
 const getters = {
 }
 
 const mutations = {
-  CHANGE_SYSTEM_THEME (state, theme) {
+  UPDATE_SYSTEM_THEME (state, theme) {
     state.systemTheme = theme
   },
-  CHANGE_ABOUT_PANEL_VISIBLE (state, visible) {
+  UPDATE_TRAY_FOCUSED (state, focused) {
+    state.trayFocused = focused
+  },
+  UPDATE_ABOUT_PANEL_VISIBLE (state, visible) {
     state.aboutPanelVisible = visible
   },
   UPDATE_ENGINE_INFO (state, engineInfo) {
@@ -48,17 +54,22 @@ const mutations = {
   UPDATE_GLOBAL_STAT (state, stat) {
     state.stat = stat
   },
-  CHANGE_ADD_TASK_VISIBLE (state, visible) {
+  UPDATE_ADD_TASK_VISIBLE (state, visible) {
     state.addTaskVisible = visible
   },
-  CHANGE_ADD_TASK_TYPE (state, taskType) {
+  UPDATE_ADD_TASK_TYPE (state, taskType) {
     state.addTaskType = taskType
   },
-  CHANGE_ADD_TASK_URL (state, text) {
+  UPDATE_ADD_TASK_URL (state, text) {
     state.addTaskUrl = text
   },
-  CHANGE_ADD_TASK_TORRENTS (state, fileList) {
+  UPDATE_ADD_TASK_TORRENTS (state, fileList) {
     state.addTaskTorrents = [...fileList]
+  },
+  UPDATE_ADD_TASK_OPTIONS (state, options) {
+    state.addTaskOptions = {
+      ...options
+    }
   },
   UPDATE_INTERVAL (state, millisecond) {
     let interval = millisecond
@@ -87,13 +98,16 @@ const mutations = {
 
 const actions = {
   updateSystemTheme ({ commit }, theme) {
-    commit('CHANGE_SYSTEM_THEME', theme)
+    commit('UPDATE_SYSTEM_THEME', theme)
+  },
+  updateTrayFocused ({ commit }, focused) {
+    commit('UPDATE_TRAY_FOCUSED', focused)
   },
   showAboutPanel ({ commit }) {
-    commit('CHANGE_ABOUT_PANEL_VISIBLE', true)
+    commit('UPDATE_ABOUT_PANEL_VISIBLE', true)
   },
   hideAboutPanel ({ commit }) {
-    commit('CHANGE_ABOUT_PANEL_VISIBLE', false)
+    commit('UPDATE_ABOUT_PANEL_VISIBLE', false)
   },
   fetchEngineInfo ({ commit }) {
     api.getVersion()
@@ -128,39 +142,31 @@ const actions = {
           dispatch('increaseInterval')
         }
         commit('UPDATE_GLOBAL_STAT', stat)
-
-        if (is.renderer()) {
-          dispatch('togglePowerSaveBlocker', numActive)
-        }
       })
-  },
-  togglePowerSaveBlocker (_, numActive) {
-    if (numActive > 0) {
-      api.startPowerSaveBlocker()
-    } else {
-      api.stopPowerSaveBlocker()
-    }
   },
   increaseInterval ({ commit }, millisecond = 100) {
     commit('INCREASE_INTERVAL', millisecond)
   },
   showAddTaskDialog ({ commit }, taskType) {
-    commit('CHANGE_ADD_TASK_TYPE', taskType)
-    commit('CHANGE_ADD_TASK_VISIBLE', true)
+    commit('UPDATE_ADD_TASK_TYPE', taskType)
+    commit('UPDATE_ADD_TASK_VISIBLE', true)
   },
   hideAddTaskDialog ({ commit }) {
-    commit('CHANGE_ADD_TASK_VISIBLE', false)
-    commit('CHANGE_ADD_TASK_URL', '')
-    commit('CHANGE_ADD_TASK_TORRENTS', [])
+    commit('UPDATE_ADD_TASK_VISIBLE', false)
+    commit('UPDATE_ADD_TASK_URL', '')
+    commit('UPDATE_ADD_TASK_TORRENTS', [])
   },
   changeAddTaskType ({ commit }, taskType) {
-    commit('CHANGE_ADD_TASK_TYPE', taskType)
+    commit('UPDATE_ADD_TASK_TYPE', taskType)
   },
-  updateAddTaskUrl ({ commit }, text = '') {
-    commit('CHANGE_ADD_TASK_URL', text)
+  updateAddTaskUrl ({ commit }, uri = '') {
+    commit('UPDATE_ADD_TASK_URL', uri)
   },
   addTaskAddTorrents ({ commit }, { fileList }) {
-    commit('CHANGE_ADD_TASK_TORRENTS', fileList)
+    commit('UPDATE_ADD_TASK_TORRENTS', fileList)
+  },
+  updateAddTaskOptions ({ commit }, options = {}) {
+    commit('UPDATE_ADD_TASK_OPTIONS', options)
   },
   updateInterval ({ commit }, millisecond) {
     commit('UPDATE_INTERVAL', millisecond)
